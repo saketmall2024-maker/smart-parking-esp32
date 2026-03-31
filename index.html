@@ -3,10 +3,10 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Parking Counter (FINAL FIXED)</title>
+<title>Parking Counter (Centroid Tracking)</title>
 
 <style>
-body { margin:0; overflow:hidden; background:black; color:white; font-family:Arial; }
+body { margin:0; overflow:hidden; background:black; color:white; }
 video, canvas {
   position:absolute;
   width:100vw;
@@ -20,6 +20,7 @@ video, canvas {
   background:rgba(0,0,0,0.6);
   padding:10px;
   border-radius:10px;
+  font-family:Arial;
 }
 </style>
 
@@ -42,31 +43,27 @@ const ctx = canvas.getContext("2d");
 const inText = document.getElementById("in");
 const outText = document.getElementById("out");
 
-// SETTINGS
-const MAX_SLOTS = 5;
-const DIFF_THRESHOLD = 70;
-const MOTION_THRESHOLD = 4000;
-const STABLE_FRAMES = 4;
-
-// STATE
 let prevFrame = null;
+
 let inCount = 0;
 let outCount = 0;
+const MAX = 5;
 
-// detection state machine
-let state = "WAIT_CENTER"; 
-let currentZone = null;
-let lastZone = null;
-let stableCount = 0;
+// tracking
+let lastX = null;
+let direction = null;
+let cooldown = 0;
 
-// Camera
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+const DIFF_THRESHOLD = 60;
+const MIN_PIXELS = 2000;
+
+navigator.mediaDevices.getUserMedia({ video: true })
 .then(stream => video.srcObject = stream);
 
 video.addEventListener("loadeddata", () => {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  requestAnimationFrame(track);
+  requestAnimationFrame(loop);
 });
 
 function updateUI(){
@@ -74,102 +71,87 @@ function updateUI(){
   outText.innerText = outCount;
 }
 
-function track(){
+function loop(){
   ctx.drawImage(video, 0, 0);
 
-  const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const frame = ctx.getImageData(0,0,canvas.width,canvas.height);
   const data = frame.data;
 
-  let left = 0, center = 0, right = 0;
-  let totalMotion = 0;
+  let sumX = 0;
+  let count = 0;
 
   if(prevFrame){
     const prev = prevFrame.data;
 
-    for(let i = 0; i < data.length; i += 4){
+    for(let i=0;i<data.length;i+=4){
       let diff =
-        Math.abs(data[i] - prev[i]) +
-        Math.abs(data[i+1] - prev[i+1]) +
-        Math.abs(data[i+2] - prev[i+2]);
+        Math.abs(data[i]-prev[i]) +
+        Math.abs(data[i+1]-prev[i+1]) +
+        Math.abs(data[i+2]-prev[i+2]);
 
       if(diff > DIFF_THRESHOLD){
-        totalMotion++;
-
-        let x = (i / 4) % canvas.width;
-
-        if(x < canvas.width/3) left++;
-        else if(x < 2*canvas.width/3) center++;
-        else right++;
+        let x = (i/4) % canvas.width;
+        sumX += x;
+        count++;
       }
     }
 
-    if(totalMotion > MOTION_THRESHOLD){
+    if(count > MIN_PIXELS){
 
-      // determine zone
-      if(center > left && center > right) currentZone = "CENTER";
-      else if(left > right) currentZone = "LEFT";
-      else currentZone = "RIGHT";
+      let avgX = sumX / count;
+      let centerLine = canvas.width / 2;
 
-      // stability check
-      if(currentZone === lastZone){
-        stableCount++;
-      } else {
-        stableCount = 0;
-      }
+      // draw debug line + dot
+      ctx.strokeStyle = "red";
+      ctx.beginPath();
+      ctx.moveTo(centerLine,0);
+      ctx.lineTo(centerLine,canvas.height);
+      ctx.stroke();
 
-      if(stableCount > STABLE_FRAMES){
+      ctx.fillStyle = "lime";
+      ctx.beginPath();
+      ctx.arc(avgX, canvas.height/2, 10, 0, Math.PI*2);
+      ctx.fill();
 
-        // 🔥 STATE MACHINE
+      if(lastX !== null && cooldown <= 0){
 
-        // Step 1: wait for CENTER
-        if(state === "WAIT_CENTER" && currentZone === "CENTER"){
-          state = "WAIT_EXIT";
+        // detect crossing
+        if(lastX < centerLine && avgX > centerLine){
+          // LEFT → RIGHT = IN
+          if((inCount - outCount) < MAX){
+            inCount++;
+            updateUI();
+          }
+          cooldown = 20;
         }
 
-        // Step 2: detect exit direction
-        else if(state === "WAIT_EXIT"){
-
-          // CENTER → RIGHT = IN
-          if(currentZone === "RIGHT"){
-            if((inCount - outCount) < MAX_SLOTS){
-              inCount++;
-              updateUI();
-            }
-            reset();
+        else if(lastX > centerLine && avgX < centerLine){
+          // RIGHT → LEFT = OUT
+          if(inCount > outCount){
+            outCount++;
+            updateUI();
           }
-
-          // CENTER → LEFT = OUT
-          else if(currentZone === "LEFT"){
-            if(inCount > outCount){
-              outCount++;
-              updateUI();
-            }
-            reset();
-          }
+          cooldown = 20;
         }
       }
 
-      lastZone = currentZone;
+      lastX = avgX;
 
     } else {
-      reset(); // no motion = reset system
+      lastX = null; // no object
     }
+
+    if(cooldown > 0) cooldown--;
   }
 
   prevFrame = frame;
-  requestAnimationFrame(track);
-}
-
-// reset after one detection
-function reset(){
-  state = "WAIT_CENTER";
-  stableCount = 0;
-  lastZone = null;
+  requestAnimationFrame(loop);
 }
 </script>
 
 </body>
 </html>
+
 
 
 
