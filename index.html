@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Parking Counter (Camera Only)</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+  color: white;
+  font-family: Arial;
+}
+
+video, canvas {
+  position: absolute;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+}
+
+#ui {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 10;
+  background: rgba(0,0,0,0.6);
+  padding: 10px 15px;
+  border-radius: 10px;
+}
+
+h2 {
+  margin: 5px 0;
+}
+</style>
+
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline></video> <canvas id="canvas"></canvas>
+
+<div id="ui">
+  <h2>IN: <span id="in">0</span></h2>
+  <h2>OUT: <span id="out">0</span></h2>
+  <h2>INSIDE: <span id="inside">0</span></h2>
+</div>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const inText = document.getElementById("in");
+const outText = document.getElementById("out");
+const insideText = document.getElementById("inside");
+
+// Camera
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+.then(stream => video.srcObject = stream);
+
+// State
+let prevFrame = null;
+let inCount = 0;
+let outCount = 0;
+let cooldown = 0;
+
+// Start
+video.addEventListener("loadeddata", () => {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  requestAnimationFrame(track);
+});
+
+function updateUI(){
+  inText.innerText = inCount;
+  outText.innerText = outCount;
+  insideText.innerText = inCount - outCount;
+}
+
+function track(){
+  ctx.drawImage(video, 0, 0);
+
+  const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = frame.data;
+
+  let left = 0, center = 0, right = 0;
+
+  if(prevFrame){
+    const prev = prevFrame.data;
+
+    for(let i = 0; i < data.length; i += 4){
+      let diff =
+        Math.abs(data[i] - prev[i]) +
+        Math.abs(data[i+1] - prev[i+1]) +
+        Math.abs(data[i+2] - prev[i+2]);
+
+      // Motion sensitivity
+      if(diff > 70){
+        let x = (i / 4) % canvas.width;
+
+        if(x < canvas.width/3) left++;
+        else if(x < 2*canvas.width/3) center++;
+        else right++;
+      }
+    }
+
+    const THRESHOLD = 6000;
+
+    if(cooldown <= 0){
+
+      // RIGHT → IN
+      if(right > THRESHOLD && right > left){
+        inCount++;
+        cooldown = 12;
+      }
+
+      // LEFT → OUT (safe)
+      else if(left > THRESHOLD && left > right){
+        if(inCount > outCount){
+          outCount++;
+          cooldown = 12;
+        }
+      }
+
+      updateUI();
+    } else {
+      cooldown--;
+    }
+  }
+
+  prevFrame = frame;
+  requestAnimationFrame(track);
+}
+</script>
+
+</body>
+</html>
