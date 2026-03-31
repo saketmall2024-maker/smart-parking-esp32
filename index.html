@@ -3,7 +3,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Parking Counter (Stable)</title>
+<title>Smart Parking Counter (Center Logic)</title>
 
 <style>
 body { margin:0; overflow:hidden; background:black; color:white; font-family:Arial; }
@@ -44,16 +44,16 @@ const outText = document.getElementById("out");
 
 // SETTINGS
 const MAX_SLOTS = 5;
-const MOTION_THRESHOLD = 6000;
 const DIFF_THRESHOLD = 70;
-const EMPTY_THRESHOLD = 1000;
+const MOTION_THRESHOLD = 4000;
 
 // STATE
 let prevFrame = null;
 let inCount = 0;
 let outCount = 0;
 
-let objectPresent = false;
+let lastZone = null;
+let passedCenter = false;
 let cooldown = 0;
 
 // Camera
@@ -100,32 +100,46 @@ function track(){
       }
     }
 
-    // Reset when object leaves
-    if(totalMotion < EMPTY_THRESHOLD){
-      objectPresent = false;
-    }
+    if(totalMotion > MOTION_THRESHOLD){
 
-    // Detect new object
-    if(!objectPresent && totalMotion > MOTION_THRESHOLD && cooldown <= 0){
+      let currentZone = null;
 
-      objectPresent = true;
+      if(center > left && center > right) currentZone = "CENTER";
+      else if(left > right) currentZone = "LEFT";
+      else currentZone = "RIGHT";
 
-      // RIGHT → IN
-      if(right > left && right > center){
-        if((inCount - outCount) < MAX_SLOTS){
-          inCount++;
+      // Step 1: detect passing through center
+      if(currentZone === "CENTER"){
+        passedCenter = true;
+      }
+
+      // Step 2: detect direction AFTER center
+      if(passedCenter && cooldown <= 0){
+
+        // CENTER → RIGHT = IN
+        if(currentZone === "RIGHT"){
+          if((inCount - outCount) < MAX_SLOTS){
+            inCount++;
+            updateUI();
+          }
+          resetState();
+        }
+
+        // CENTER → LEFT = OUT
+        else if(currentZone === "LEFT"){
+          if(inCount > outCount){
+            outCount++;
+            updateUI();
+          }
+          resetState();
         }
       }
 
-      // LEFT → OUT
-      else if(left > right && left > center){
-        if(inCount > outCount){
-          outCount++;
-        }
-      }
+      lastZone = currentZone;
 
-      updateUI();
-      cooldown = 15;
+    } else {
+      // reset when no motion
+      resetState();
     }
 
     if(cooldown > 0) cooldown--;
@@ -134,8 +148,16 @@ function track(){
   prevFrame = frame;
   requestAnimationFrame(track);
 }
+
+// Reset tracking after one object
+function resetState(){
+  passedCenter = false;
+  lastZone = null;
+  cooldown = 15;
+}
 </script>
 
 </body>
 </html>
+
 
