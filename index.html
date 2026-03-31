@@ -3,7 +3,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Parking Counter (Center Logic)</title>
+<title>Smart Parking Counter (FINAL FIXED)</title>
 
 <style>
 body { margin:0; overflow:hidden; background:black; color:white; font-family:Arial; }
@@ -46,15 +46,18 @@ const outText = document.getElementById("out");
 const MAX_SLOTS = 5;
 const DIFF_THRESHOLD = 70;
 const MOTION_THRESHOLD = 4000;
+const STABLE_FRAMES = 4;
 
 // STATE
 let prevFrame = null;
 let inCount = 0;
 let outCount = 0;
 
+// detection state machine
+let state = "WAIT_CENTER"; 
+let currentZone = null;
 let lastZone = null;
-let passedCenter = false;
-let cooldown = 0;
+let stableCount = 0;
 
 // Camera
 navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
@@ -102,62 +105,71 @@ function track(){
 
     if(totalMotion > MOTION_THRESHOLD){
 
-      let currentZone = null;
-
+      // determine zone
       if(center > left && center > right) currentZone = "CENTER";
       else if(left > right) currentZone = "LEFT";
       else currentZone = "RIGHT";
 
-      // Step 1: detect passing through center
-      if(currentZone === "CENTER"){
-        passedCenter = true;
+      // stability check
+      if(currentZone === lastZone){
+        stableCount++;
+      } else {
+        stableCount = 0;
       }
 
-      // Step 2: detect direction AFTER center
-      if(passedCenter && cooldown <= 0){
+      if(stableCount > STABLE_FRAMES){
 
-        // CENTER → RIGHT = IN
-        if(currentZone === "RIGHT"){
-          if((inCount - outCount) < MAX_SLOTS){
-            inCount++;
-            updateUI();
-          }
-          resetState();
+        // 🔥 STATE MACHINE
+
+        // Step 1: wait for CENTER
+        if(state === "WAIT_CENTER" && currentZone === "CENTER"){
+          state = "WAIT_EXIT";
         }
 
-        // CENTER → LEFT = OUT
-        else if(currentZone === "LEFT"){
-          if(inCount > outCount){
-            outCount++;
-            updateUI();
+        // Step 2: detect exit direction
+        else if(state === "WAIT_EXIT"){
+
+          // CENTER → RIGHT = IN
+          if(currentZone === "RIGHT"){
+            if((inCount - outCount) < MAX_SLOTS){
+              inCount++;
+              updateUI();
+            }
+            reset();
           }
-          resetState();
+
+          // CENTER → LEFT = OUT
+          else if(currentZone === "LEFT"){
+            if(inCount > outCount){
+              outCount++;
+              updateUI();
+            }
+            reset();
+          }
         }
       }
 
       lastZone = currentZone;
 
     } else {
-      // reset when no motion
-      resetState();
+      reset(); // no motion = reset system
     }
-
-    if(cooldown > 0) cooldown--;
   }
 
   prevFrame = frame;
   requestAnimationFrame(track);
 }
 
-// Reset tracking after one object
-function resetState(){
-  passedCenter = false;
+// reset after one detection
+function reset(){
+  state = "WAIT_CENTER";
+  stableCount = 0;
   lastZone = null;
-  cooldown = 15;
 }
 </script>
 
 </body>
 </html>
+
 
 
